@@ -579,18 +579,76 @@ function renderGroupePicker() {
   res.innerHTML = '';
   res.appendChild(wrap);
 
+  const newFreeStart = document.createElement('button');
+  newFreeStart.className = 'new-alt';
+  newFreeStart.textContent = '+ Ligne libre';
+  newFreeStart.style.marginTop = '14px';
+  newFreeStart.onclick = createFreeRow;
+  res.appendChild(newFreeStart);
+
   if (DATA.length === 0) {
     const emptyMsg = document.createElement('div');
     emptyMsg.className = 'done';
-    emptyMsg.style.marginTop = '20px';
-    emptyMsg.textContent = 'Base vide. Créez la première ligne pour commencer.';
+    emptyMsg.style.marginTop = '12px';
+    emptyMsg.textContent = 'Base vide. Cliquez sur « + Ligne libre » pour créer la première ligne.';
     res.appendChild(emptyMsg);
-    const newFreeStart = document.createElement('button');
-    newFreeStart.className = 'new-alt';
-    newFreeStart.textContent = '+ Ligne libre';
-    newFreeStart.style.marginTop = '10px';
-    newFreeStart.onclick = createFreeRow;
-    res.appendChild(newFreeStart);
+  }
+
+  // Lignes sans Groupe renseigné : invisibles dans les cartes ci-dessus (Groupe vide),
+  // on les affiche ici sous forme de tableau éditable pour qu'on puisse les compléter.
+  const ungrouped = DATA.filter(r => !(r.cells[0] || '').trim());
+  if (ungrouped.length > 0) {
+    const h3 = document.createElement('h3');
+    h3.style.marginTop = '20px';
+    h3.textContent = 'Lignes sans Groupe à compléter (' + ungrouped.length + ')';
+    res.appendChild(h3);
+    const table = document.createElement('table');
+    const thead = document.createElement('thead');
+    const trh = document.createElement('tr');
+    trh.appendChild(Object.assign(document.createElement('th'), { className: 'actions-col', textContent: '' }));
+    HEADERS.forEach(h => trh.appendChild(Object.assign(document.createElement('th'), { textContent: h })));
+    thead.appendChild(trh);
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    ungrouped.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.dataset.id = r.id;
+      if (r._new) tr.classList.add('new-row');
+      const tdA = document.createElement('td');
+      tdA.className = 'actions';
+      const del = document.createElement('button');
+      del.className = 'row-btn delete-btn';
+      del.textContent = '🗑';
+      del.title = 'Supprimer cette ligne';
+      del.onclick = (e) => { e.stopPropagation(); deleteRow(r.id); };
+      tdA.appendChild(del);
+      tr.appendChild(tdA);
+      for (let i = 0; i < 7; i++) {
+        const td = document.createElement('td');
+        td.contentEditable = 'true';
+        td.dataset.col = i;
+        td.textContent = r.cells[i] || '';
+        td.addEventListener('focus', () => { editingActive = true; });
+        td.addEventListener('blur', () => {
+          const newVal = td.textContent.trim();
+          if (newVal !== (r.cells[i] || '')) {
+            r.cells[i] = newVal;
+            dirty = true; updateBadge();
+            fsUpdateRow(r);
+          }
+          editingActive = false;
+          if (pendingRender) { pendingRender = false; render(); }
+        });
+        td.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') { td.textContent = r.cells[i] || ''; td.blur(); }
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); td.blur(); }
+        });
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    res.appendChild(table);
   }
 }
 
