@@ -107,6 +107,14 @@
   .meta-bar input:focus { outline: 0; border-color: #2F5496; box-shadow: 0 0 0 2px rgba(47,84,150,0.15); }
   .meta-bar .meta-id { margin-left: auto; font-size: 14px; color: #2F5496; font-weight: 600; }
   .meta-bar .meta-id strong { font-size: 18px; }
+  .scope-btn { background: #2F5496; color: white; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
+  .scope-btn:hover { background: #1f3a6b; }
+  .scope-btn.all-scope { background: #f9a825; }
+  .scope-btn.all-scope:hover { background: #e09000; }
+  .ghost-light { background: transparent; border: 1px solid #c4ccd6; color: #888; padding: 5px 9px; font-size: 13px; }
+  .ghost-light:hover { background: #e4e9ef; color: #555; }
+  .search-hit td { background: #fff8dc !important; }
+  .search-hit-banner { background: #fff3cd; color: #856404; padding: 8px 24px; font-size: 13px; border-bottom: 1px solid #ffeaa7; }
   .attach-btn { color: #2F5496; position: relative; }
   .attach-btn:hover { background: #eaf0fa; }
   .attach-btn .badge { position: absolute; top: -4px; right: -4px; background: #f9a825; color: white; font-size: 10px; font-weight: 700; border-radius: 8px; padding: 0 4px; min-width: 14px; line-height: 14px; }
@@ -158,6 +166,9 @@
   <label>Adresse <input id="metaAddress" type="text" placeholder="ex. 12 rue des Lilas"></label>
   <label>Ville <input id="metaCity" type="text" placeholder="ex. Avignon"></label>
   <label>Auteur <input id="metaAuthor" type="text" placeholder="ex. Luc Neples"></label>
+  <label>🔎 Recherche <input id="searchBox" type="text" placeholder="mot-clé…" autocomplete="off"></label>
+  <button class="btn scope-btn" id="searchScopeBtn" title="Cliquez pour changer la portée de la recherche">Dans la sélection</button>
+  <button class="btn ghost-light" id="searchClearBtn" title="Effacer la recherche" style="display:none">✕</button>
   <span class="meta-id">Conseil n° <strong id="metaId">—</strong></span>
 </div>
 <div class="conseil-banner" id="conseilBanner" style="display:none">
@@ -194,6 +205,8 @@ const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
 const storage = getStorage(fbApp);
 const LIGNES_COL = 'lignes';
+const BRANCHES_COL = 'rubriques_pieces_jointes';
+let BRANCH_ATTACHMENTS = new Map(); // clé de branche -> tableau d'attachments
 
 const HEADERS = ["Groupe", "Sous-groupe", "Matériaux", "Dosages", "Mise en Oeuvre", "Autres infos utiles", "Couleurs et aspects de finition"];
 const ORIGINAL = [];
@@ -211,6 +224,8 @@ let nextNumericId = 1;
 let dataReady = false;
 let editingActive = false;
 let pendingRender = false;
+let searchQuery = '';
+let searchScope = 'visible'; // 'visible' (parmi les fiches déjà listées) | 'all' (toute la base)
 
 function migrateLabel(cells) {
   if (cells[0] === 'Gardes corps') cells[0] = 'Gardes Corps';
@@ -256,11 +271,22 @@ function startListening() {
   });
 }
 
+function startListeningBranches() {
+  onSnapshot(collection(db, BRANCHES_COL), (snap) => {
+    const m = new Map();
+    snap.forEach(docSnap => { m.set(docSnap.id, docSnap.data().attachments || []); });
+    BRANCH_ATTACHMENTS = m;
+    if (editingActive) { pendingRender = true; }
+    else { render(); }
+  });
+}
+
 (async function initData() {
   const res0 = document.getElementById('results');
   if (res0) res0.innerHTML = '<div class="done">Chargement des données…</div>';
   await ensureSeeded();
   startListening();
+  startListeningBranches();
 })();
 
 function fsUpdateRow(row) { updateDoc(doc(db, LIGNES_COL, row.id), { cells: row.cells }).catch(console.error); }
@@ -283,6 +309,26 @@ async function fsAddAttachment(rowId, file) {
 
 async function fsRemoveAttachment(rowId, attachment) {
   await updateDoc(doc(db, LIGNES_COL, rowId), { attachments: arrayRemove(attachment) });
+  try { await deleteObject(storageRef(storage, attachment.path)); } catch (e) { console.warn('Suppression Storage échouée (fichier déjà absent ?)', e); }
+}
+
+// --- Pièces jointes liées à une branche de navigation (combinaison de critères) ---
+function branchKey(critArr) {
+  return critArr.map(c => c.col + '=' + String(c.val)).join('~~').replace(/\//g, '⁄').slice(0, 1400);
+}
+
+async function fsAddBranchAttachment(key, file) {
+  const path = 'rubriques/' + encodeURIComponent(key).slice(0, 200) + '/' + Date.now() + '_' + sanitizeFileName(file.name);
+  const ref = storageRef(storage, path);
+  await uploadBytes(ref, file);
+  const url = await getDownloadURL(ref);
+  const attachment = { name: file.name, url, path, type: file.type || '', addedAt: Date.now() };
+  await setDoc(doc(db, BRANCHES_COL, key), { attachments: arrayUnion(attachment) }, { merge: true });
+  return attachment;
+}
+
+async function fsRemoveBranchAttachment(key, attachment) {
+  await setDoc(doc(db, BRANCHES_COL, key), { attachments: arrayRemove(attachment) }, { merge: true });
   try { await deleteObject(storageRef(storage, attachment.path)); } catch (e) { console.warn('Suppression Storage échouée (fichier déjà absent ?)', e); }
 }
 
@@ -445,6 +491,155 @@ function makeAttachButton(row) {
   btn.onclick = (e) => { e.stopPropagation(); openAttachmentsModal(row); };
   return btn;
 }
+
+// --- Modale + bouton pour les pièces jointes de branche (options de la liste de navigation) ---
+function openBranchAttachmentsModal(key, label) {
+  editingActive = true;
+  const ov = document.createElement('div');
+  ov.className = 'attach-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'attach-modal';
+  ov.appendChild(modal);
+
+  function close() {
+    editingActive = false;
+    ov.remove();
+    if (pendingRender) { pendingRender = false; render(); }
+  }
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+
+  function paint() {
+    modal.innerHTML = '';
+    const h3 = document.createElement('h3');
+    h3.textContent = 'Pièces jointes — ' + label;
+    modal.appendChild(h3);
+    const sub = document.createElement('div');
+    sub.className = 'sub';
+    sub.textContent = 'Ces fichiers concernent toutes les lignes de cette branche, quelle que soit la suite des critères.';
+    modal.appendChild(sub);
+
+    const list = document.createElement('div');
+    list.className = 'attach-list';
+    const atts = BRANCH_ATTACHMENTS.get(key) || [];
+    if (atts.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'attach-empty';
+      empty.textContent = 'Aucun fichier attaché pour le moment.';
+      modal.appendChild(empty);
+    } else {
+      atts.forEach(att => {
+        const item = document.createElement('div');
+        item.className = 'attach-item';
+        if (isImageType(att)) {
+          const img = document.createElement('img');
+          img.src = att.url;
+          img.title = 'Cliquer pour agrandir';
+          img.onclick = () => openLightbox(att.url);
+          item.appendChild(img);
+        } else {
+          const icon = document.createElement('div');
+          icon.className = 'pdf-icon';
+          icon.textContent = '📄';
+          item.appendChild(icon);
+        }
+        const name = document.createElement('div');
+        name.className = 'name';
+        const a = document.createElement('a');
+        a.href = att.url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = att.name || 'fichier';
+        a.title = isImageType(att) ? 'Ouvrir dans un nouvel onglet' : 'Télécharger / ouvrir le PDF';
+        name.appendChild(a);
+        item.appendChild(name);
+        const rm = document.createElement('button');
+        rm.className = 'remove';
+        rm.textContent = '🗑';
+        rm.title = 'Supprimer ce fichier';
+        rm.onclick = async () => {
+          rm.disabled = true;
+          await fsRemoveBranchAttachment(key, att).catch(err => { alert('Suppression impossible : ' + err.message); });
+          BRANCH_ATTACHMENTS.set(key, (BRANCH_ATTACHMENTS.get(key) || []).filter(a2 => a2.url !== att.url));
+          paint();
+          updateBranchAttachBadge(key);
+        };
+        item.appendChild(rm);
+        list.appendChild(item);
+      });
+      modal.appendChild(list);
+    }
+
+    const addRow = document.createElement('div');
+    addRow.className = 'attach-add';
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*,application/pdf';
+    addRow.appendChild(input);
+    modal.appendChild(addRow);
+    const status = document.createElement('div');
+    status.className = 'attach-uploading';
+    modal.appendChild(status);
+
+    input.onchange = async () => {
+      const file = input.files[0];
+      if (!file) return;
+      status.textContent = 'Envoi de « ' + file.name + ' »…';
+      input.disabled = true;
+      try {
+        const att = await fsAddBranchAttachment(key, file);
+        BRANCH_ATTACHMENTS.set(key, (BRANCH_ATTACHMENTS.get(key) || []).concat([att]));
+        status.textContent = '';
+        input.disabled = false;
+        paint();
+        updateBranchAttachBadge(key);
+      } catch (err) {
+        status.textContent = 'Échec de l\'envoi : ' + err.message;
+        input.disabled = false;
+      }
+    };
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'attach-close';
+    closeBtn.textContent = 'Fermer';
+    closeBtn.onclick = close;
+    modal.appendChild(closeBtn);
+  }
+
+  paint();
+  document.body.appendChild(ov);
+}
+
+function updateBranchAttachBadge(key) {
+  const li = document.querySelector('li[data-branchkey="' + CSS.escape(key) + '"]');
+  if (!li) return;
+  const btn = li.querySelector('.attach-btn');
+  if (!btn) return;
+  const n = (BRANCH_ATTACHMENTS.get(key) || []).length;
+  let badge = btn.querySelector('.badge');
+  if (n > 0) {
+    if (!badge) { badge = document.createElement('span'); badge.className = 'badge'; btn.appendChild(badge); }
+    badge.textContent = n;
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
+function makeBranchAttachButton(key, label) {
+  const btn = document.createElement('button');
+  btn.className = 'row-btn attach-btn branch-attach-btn';
+  btn.textContent = '📎';
+  btn.title = 'Voir / ajouter des photos ou un PDF pour « ' + label + ' »';
+  const atts = BRANCH_ATTACHMENTS.get(key) || [];
+  if (atts.length > 0) {
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = atts.length;
+    btn.appendChild(badge);
+  }
+  btn.onclick = (e) => { e.stopPropagation(); openBranchAttachmentsModal(key, label); };
+  return btn;
+}
+
 async function fsDeleteMany(ids) {
   const arr = [...ids];
   const CHUNK = 400;
@@ -542,6 +737,112 @@ function updateBadge() {
 function matches(row) {
   return criteria.every(c => (row.cells[c.col] || VIDE) === c.val);
 }
+
+function normalizeSearch(s) {
+  return (s || '').toString().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // insensible aux accents
+}
+
+function rowMatchesSearch(row, q) {
+  return row.cells.some(c => normalizeSearch(c).includes(q));
+}
+
+function renderSearchResults() {
+  const q = normalizeSearch(searchQuery);
+  document.getElementById('conseilBanner').style.display = 'none';
+  document.querySelector('main').classList.remove('conseil-mode');
+  document.querySelector('main').classList.remove('picker-mode');
+  const facet = document.getElementById('facet');
+  facet.style.display = 'none';
+  const bc = document.getElementById('breadcrumb');
+  bc.style.display = '';
+  bc.innerHTML = '';
+
+  const pool = (searchScope === 'all') ? DATA : (criteria.length === 0 ? DATA : DATA.filter(matches));
+  const found = pool.filter(r => rowMatchesSearch(r, q));
+
+  const hint = document.createElement('span');
+  hint.className = 'empty-hint';
+  hint.textContent = '🔎 « ' + searchQuery + ' » — ' + found.length + ' résultat' + (found.length > 1 ? 's' : '') +
+    (searchScope === 'all' ? ' dans toute la base' : ' parmi la sélection actuelle');
+  bc.appendChild(hint);
+  const clearChip = document.createElement('button');
+  clearChip.className = 'new-alt';
+  clearChip.textContent = '× Effacer la recherche';
+  clearChip.onclick = clearSearch;
+  bc.appendChild(clearChip);
+
+  document.getElementById('count').textContent = found.length + ' résultat' + (found.length > 1 ? 's' : '') + ' / ' + DATA.length + ' au total';
+
+  const res = document.getElementById('results');
+  if (found.length === 0) {
+    res.innerHTML = '<div class="done">Aucune ligne ne contient « ' + searchQuery + ' ».</div>';
+    return;
+  }
+  const table = document.createElement('table');
+  const thead = document.createElement('thead');
+  const trh = document.createElement('tr');
+  trh.appendChild(Object.assign(document.createElement('th'), { className: 'actions-col', textContent: '' }));
+  HEADERS.forEach(h => trh.appendChild(Object.assign(document.createElement('th'), { textContent: h })));
+  thead.appendChild(trh);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  found.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.dataset.id = r.id;
+    tr.classList.add('search-hit');
+    const tdA = document.createElement('td');
+    tdA.className = 'actions';
+    const del = document.createElement('button');
+    del.className = 'row-btn delete-btn';
+    del.textContent = '🗑';
+    del.title = 'Supprimer cette ligne';
+    del.onclick = (e) => { e.stopPropagation(); deleteRow(r.id); };
+    tdA.appendChild(del);
+    const dup = document.createElement('button');
+    dup.className = 'row-btn dup-btn';
+    dup.textContent = '×2';
+    dup.title = 'Dupliquer cette ligne pour saisir une variante';
+    dup.onclick = (e) => { e.stopPropagation(); duplicateRow(r.id); };
+    tdA.appendChild(dup);
+    tdA.appendChild(makeAttachButton(r));
+    tr.appendChild(tdA);
+    for (let i = 0; i < 7; i++) {
+      const td = document.createElement('td');
+      td.contentEditable = 'true';
+      td.dataset.col = i;
+      td.textContent = r.cells[i] || '';
+      td.addEventListener('focus', () => { editingActive = true; });
+      td.addEventListener('blur', () => {
+        const newVal = td.textContent.trim();
+        if (newVal !== (r.cells[i] || '')) {
+          r.cells[i] = newVal;
+          dirty = true; updateBadge();
+          fsUpdateRow(r);
+        }
+        editingActive = false;
+        if (pendingRender) { pendingRender = false; render(); }
+      });
+      td.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { td.textContent = r.cells[i] || ''; td.blur(); }
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); td.blur(); }
+      });
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  res.innerHTML = '';
+  res.appendChild(table);
+}
+
+function clearSearch() {
+  searchQuery = '';
+  document.getElementById('searchBox').value = '';
+  document.getElementById('searchClearBtn').style.display = 'none';
+  render();
+}
+
 function nextColIndex() {
   const used = new Set(criteria.map(c => c.col));
   for (let i = 0; i < 7; i++) if (!used.has(i)) return i;
@@ -818,6 +1119,7 @@ function render() {
   document.querySelector('main').classList.remove('conseil-mode');
   document.querySelector('main').classList.remove('picker-mode');
   updateConseilUI();
+  if (searchQuery.trim() !== '') return renderSearchResults();
   if (criteria.length === 0) return renderGroupePicker();
   const fromCol = criteria.length;
   // Étape 1 : lignes qui matchent les critères
@@ -928,6 +1230,9 @@ function render() {
     facet.appendChild(ul);
     values.forEach(([v, n]) => {
       const li = document.createElement('li');
+      const branch = criteria.concat([{ col, val: v }]);
+      const key = branchKey(branch);
+      li.dataset.branchkey = key;
       const sv = document.createElement('span');
       sv.className = 'v' + (v === VIDE ? ' vide' : '');
       sv.textContent = v;
@@ -942,7 +1247,9 @@ function render() {
         e.stopPropagation();
         deleteBranch(criteria.concat([{ col, val: v }]), criteria.length);
       };
-      li.appendChild(sv); li.appendChild(sn); li.appendChild(trash);
+      li.appendChild(sv); li.appendChild(sn);
+      li.appendChild(makeBranchAttachButton(key, v));
+      li.appendChild(trash);
       li.onclick = () => { criteria.push({ col, val: v }); render(); };
       ul.appendChild(li);
     });
@@ -1345,6 +1652,26 @@ function clearConseilAfterExport() {
   const key = k.toLowerCase();
   el.value = conseilMeta[key] || '';
   el.addEventListener('blur', () => { conseilMeta[key] = el.value.trim(); saveConseilMeta(); });
+});
+
+// Recherche en direct
+const searchBoxEl = document.getElementById('searchBox');
+const searchClearBtnEl = document.getElementById('searchClearBtn');
+const searchScopeBtnEl = document.getElementById('searchScopeBtn');
+searchBoxEl.addEventListener('input', () => {
+  searchQuery = searchBoxEl.value;
+  searchClearBtnEl.style.display = searchQuery.trim() !== '' ? '' : 'none';
+  render();
+});
+searchClearBtnEl.addEventListener('click', clearSearch);
+searchScopeBtnEl.addEventListener('click', () => {
+  searchScope = (searchScope === 'visible') ? 'all' : 'visible';
+  searchScopeBtnEl.textContent = (searchScope === 'all') ? 'Toute la base' : 'Dans la sélection';
+  searchScopeBtnEl.classList.toggle('all-scope', searchScope === 'all');
+  searchScopeBtnEl.title = (searchScope === 'all')
+    ? 'Recherche dans toute la base, sans tenir compte de la navigation en cours. Cliquez pour limiter à la sélection actuelle.'
+    : 'Recherche seulement parmi les lignes déjà affichées par la navigation en cours. Cliquez pour chercher dans toute la base.';
+  if (searchQuery.trim() !== '') render();
 });
 
 function saveCurrentConseilAsXlsx() {
