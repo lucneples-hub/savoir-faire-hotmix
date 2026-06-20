@@ -160,6 +160,7 @@
     <span class="modif-badge" id="modifBadge"></span>
     <button class="btn" id="btnConseil" title="Afficher uniquement les lignes du conseil en cours pour les revoir/modifier">👁 Voir le conseil <span id="conseilCount" style="background:#fff3cd;color:#856404;padding:0 6px;border-radius:8px;margin-left:4px;font-size:11px;display:none"></span></button>
     <button class="btn" id="btnExport">Exporter le conseil (.xlsx)</button>
+    <button class="btn ghost" id="btnNewConseil" title="Vider la sélection du conseil en cours (avec proposition de sauvegarde avant)">🆕 Nouveau conseil</button>
     <label class="btn ghost" id="btnImportBase" title="Remplacer la base 1643 lignes par celle du fichier (restauration d'une sauvegarde)" style="cursor:pointer;display:inline-flex;align-items:center">📂 Restaurer une base
       <input type="file" id="fileInputBase" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
     </label>
@@ -790,6 +791,7 @@ function renderSearchResults() {
   const trh = document.createElement('tr');
   trh.appendChild(Object.assign(document.createElement('th'), { className: 'actions-col', textContent: '' }));
   HEADERS.forEach(h => trh.appendChild(Object.assign(document.createElement('th'), { textContent: h })));
+  trh.appendChild(Object.assign(document.createElement('th'), { className: 'check-col', textContent: '✓ Conseil' }));
   thead.appendChild(trh);
   table.appendChild(thead);
   const tbody = document.createElement('tbody');
@@ -835,6 +837,22 @@ function renderSearchResults() {
       });
       tr.appendChild(td);
     }
+    // Case à cocher conseil — visible uniquement si la finition (col 6) est remplie
+    const tdCheck = document.createElement('td');
+    tdCheck.className = 'check-cell';
+    if ((r.cells[6] || '').trim()) {
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = isInConseil(r.id);
+      cb.title = 'Ajouter cette ligne au conseil en cours';
+      if (cb.checked) tr.classList.add('in-conseil');
+      cb.onchange = () => {
+        if (cb.checked) { addToConseil(r); tr.classList.add('in-conseil'); }
+        else { removeFromConseil(r.id); tr.classList.remove('in-conseil'); }
+      };
+      tdCheck.appendChild(cb);
+    }
+    tr.appendChild(tdCheck);
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
@@ -1679,6 +1697,34 @@ document.getElementById('btnExport').onclick = () => {
   }
   if (!saveCurrentConseilAsXlsx()) return;
   clearConseilAfterExport();
+};
+
+document.getElementById('btnNewConseil').onclick = () => {
+  if (CONSEIL.length === 0) {
+    alert('Le conseil en cours est déjà vide.');
+    return;
+  }
+  const save = confirm(
+    'Le conseil en cours contient ' + CONSEIL.length + ' ligne' + (CONSEIL.length > 1 ? 's' : '') + '.\n\n' +
+    'OK pour les sauvegarder en .xlsx avant de les effacer.\n' +
+    'Annuler pour choisir si vous voulez les effacer sans sauvegarder.'
+  );
+  if (save) {
+    if (!saveCurrentConseilAsXlsx()) return;
+    clearConseilAfterExport();
+  } else {
+    const discard = confirm('Effacer les ' + CONSEIL.length + ' ligne' + (CONSEIL.length > 1 ? 's' : '') + ' du conseil en cours sans les sauvegarder ?');
+    if (!discard) return;
+    CONSEIL = [];
+    conseilId = null;
+    // Ville et Auteur sont conservés — seule l'adresse change
+    conseilMeta = { address: '', city: conseilMeta.city || '', author: conseilMeta.author || '' };
+    saveConseilMeta();
+    saveConseil();
+    const a = document.getElementById('metaAddress'); if (a) a.value = '';
+    viewingConseil = false;
+    render();
+  }
 };
 
 document.getElementById('btnExportBase').onclick = () => {
