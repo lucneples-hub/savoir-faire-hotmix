@@ -107,6 +107,30 @@
   .meta-bar input:focus { outline: 0; border-color: #2F5496; box-shadow: 0 0 0 2px rgba(47,84,150,0.15); }
   .meta-bar .meta-id { margin-left: auto; font-size: 14px; color: #2F5496; font-weight: 600; }
   .meta-bar .meta-id strong { font-size: 18px; }
+  .attach-btn { color: #2F5496; position: relative; }
+  .attach-btn:hover { background: #eaf0fa; }
+  .attach-btn .badge { position: absolute; top: -4px; right: -4px; background: #f9a825; color: white; font-size: 10px; font-weight: 700; border-radius: 8px; padding: 0 4px; min-width: 14px; line-height: 14px; }
+  .attach-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .attach-modal { background: white; border-radius: 10px; padding: 20px 22px; width: 480px; max-width: 92vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 30px rgba(0,0,0,0.25); }
+  .attach-modal h3 { margin: 0 0 4px 0; font-size: 16px; color: #1d1d1f; }
+  .attach-modal .sub { font-size: 12px; color: #888; margin-bottom: 14px; }
+  .attach-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .attach-item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; background: #f7f7fa; }
+  .attach-item img { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; cursor: pointer; flex-shrink: 0; }
+  .attach-item .pdf-icon { width: 44px; height: 44px; border-radius: 4px; background: #fdecea; color: #c62828; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+  .attach-item .name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .attach-item .name a { color: #2F5496; text-decoration: none; }
+  .attach-item .name a:hover { text-decoration: underline; }
+  .attach-item .remove { background: transparent; border: 0; color: #c62828; cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 4px; }
+  .attach-item .remove:hover { background: #ffebee; }
+  .attach-empty { color: #aaa; font-style: italic; font-size: 13px; margin-bottom: 14px; }
+  .attach-add { display: flex; align-items: center; gap: 10px; }
+  .attach-add input[type=file] { font-size: 13px; flex: 1; }
+  .attach-close { margin-top: 16px; width: 100%; background: #2F5496; color: white; border: 0; padding: 8px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .attach-close:hover { background: #1f3a6b; }
+  .attach-uploading { font-size: 12px; color: #856404; margin-top: 6px; }
+  .lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 200; cursor: zoom-out; }
+  .lightbox-overlay img { max-width: 92vw; max-height: 92vh; border-radius: 6px; }
 </style>
 </head>
 <body>
@@ -152,8 +176,11 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getFirestore, collection, doc, getDocs, setDoc, updateDoc, deleteDoc,
-  onSnapshot, writeBatch, runTransaction
+  onSnapshot, writeBatch, runTransaction, arrayUnion, arrayRemove
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {
+  getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDX_J0gFYIFNW9XTpnpjV2SCT1VZCBZh6k",
@@ -165,6 +192,7 @@ const firebaseConfig = {
 };
 const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
+const storage = getStorage(fbApp);
 const LIGNES_COL = 'lignes';
 
 const HEADERS = ["Groupe", "Sous-groupe", "Matériaux", "Dosages", "Mise en Oeuvre", "Autres infos utiles", "Couleurs et aspects de finition"];
@@ -216,7 +244,7 @@ function startListening() {
     let maxId = 0;
     snap.forEach(docSnap => {
       const d = docSnap.data();
-      rows.push({ id: docSnap.id, cells: d.cells, _new: !!d._new });
+      rows.push({ id: docSnap.id, cells: d.cells, _new: !!d._new, attachments: d.attachments || [] });
       const n = parseInt(docSnap.id.replace(/\D/g, '')) || 0;
       if (n > maxId) maxId = n;
     });
@@ -238,6 +266,185 @@ function startListening() {
 function fsUpdateRow(row) { updateDoc(doc(db, LIGNES_COL, row.id), { cells: row.cells }).catch(console.error); }
 function fsSetRow(row) { setDoc(doc(db, LIGNES_COL, row.id), { cells: row.cells, _new: !!row._new }).catch(console.error); }
 function fsDeleteRow(id) { deleteDoc(doc(db, LIGNES_COL, id)).catch(console.error); }
+
+function sanitizeFileName(name) {
+  return (name || 'fichier').replace(/[^a-zA-Z0-9.\-_]/g, '_');
+}
+
+async function fsAddAttachment(rowId, file) {
+  const path = 'lignes/' + rowId + '/' + Date.now() + '_' + sanitizeFileName(file.name);
+  const ref = storageRef(storage, path);
+  await uploadBytes(ref, file);
+  const url = await getDownloadURL(ref);
+  const attachment = { name: file.name, url, path, type: file.type || '', addedAt: Date.now() };
+  await updateDoc(doc(db, LIGNES_COL, rowId), { attachments: arrayUnion(attachment) });
+  return attachment;
+}
+
+async function fsRemoveAttachment(rowId, attachment) {
+  await updateDoc(doc(db, LIGNES_COL, rowId), { attachments: arrayRemove(attachment) });
+  try { await deleteObject(storageRef(storage, attachment.path)); } catch (e) { console.warn('Suppression Storage échouée (fichier déjà absent ?)', e); }
+}
+
+function isImageType(att) {
+  return (att.type || '').startsWith('image/') || /\.(png|jpe?g|gif|webp|heic)$/i.test(att.name || '');
+}
+
+function openLightbox(url) {
+  const ov = document.createElement('div');
+  ov.className = 'lightbox-overlay';
+  const img = document.createElement('img');
+  img.src = url;
+  ov.appendChild(img);
+  ov.onclick = () => ov.remove();
+  document.body.appendChild(ov);
+}
+
+function openAttachmentsModal(row) {
+  editingActive = true; // empêche un re-render Firestore pendant que la fenêtre est ouverte
+  const ov = document.createElement('div');
+  ov.className = 'attach-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'attach-modal';
+  ov.appendChild(modal);
+
+  function close() {
+    editingActive = false;
+    ov.remove();
+    if (pendingRender) { pendingRender = false; render(); }
+  }
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+
+  function paint() {
+    modal.innerHTML = '';
+    const h3 = document.createElement('h3');
+    h3.textContent = 'Pièces jointes — ' + (row.cells[0] || '(ligne sans groupe)');
+    modal.appendChild(h3);
+    const sub = document.createElement('div');
+    sub.className = 'sub';
+    sub.textContent = (row.cells[1] || '') ;
+    modal.appendChild(sub);
+
+    const list = document.createElement('div');
+    list.className = 'attach-list';
+    const atts = row.attachments || [];
+    if (atts.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'attach-empty';
+      empty.textContent = 'Aucun fichier attaché pour le moment.';
+      modal.appendChild(empty);
+    } else {
+      atts.forEach(att => {
+        const item = document.createElement('div');
+        item.className = 'attach-item';
+        if (isImageType(att)) {
+          const img = document.createElement('img');
+          img.src = att.url;
+          img.title = 'Cliquer pour agrandir';
+          img.onclick = () => openLightbox(att.url);
+          item.appendChild(img);
+        } else {
+          const icon = document.createElement('div');
+          icon.className = 'pdf-icon';
+          icon.textContent = '📄';
+          item.appendChild(icon);
+        }
+        const name = document.createElement('div');
+        name.className = 'name';
+        const a = document.createElement('a');
+        a.href = att.url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = att.name || 'fichier';
+        a.title = isImageType(att) ? 'Ouvrir dans un nouvel onglet' : 'Télécharger / ouvrir le PDF';
+        name.appendChild(a);
+        item.appendChild(name);
+        const rm = document.createElement('button');
+        rm.className = 'remove';
+        rm.textContent = '🗑';
+        rm.title = 'Supprimer ce fichier';
+        rm.onclick = async () => {
+          rm.disabled = true;
+          await fsRemoveAttachment(row.id, att).catch(err => { alert('Suppression impossible : ' + err.message); });
+          row.attachments = (row.attachments || []).filter(a2 => a2.url !== att.url);
+          paint();
+          updateAttachBadge(row);
+        };
+        item.appendChild(rm);
+        list.appendChild(item);
+      });
+      modal.appendChild(list);
+    }
+
+    const addRow = document.createElement('div');
+    addRow.className = 'attach-add';
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*,application/pdf';
+    addRow.appendChild(input);
+    modal.appendChild(addRow);
+    const status = document.createElement('div');
+    status.className = 'attach-uploading';
+    modal.appendChild(status);
+
+    input.onchange = async () => {
+      const file = input.files[0];
+      if (!file) return;
+      status.textContent = 'Envoi de « ' + file.name + ' »…';
+      input.disabled = true;
+      try {
+        const att = await fsAddAttachment(row.id, file);
+        row.attachments = (row.attachments || []).concat([att]);
+        status.textContent = '';
+        input.disabled = false;
+        paint();
+        updateAttachBadge(row);
+      } catch (err) {
+        status.textContent = 'Échec de l\'envoi : ' + err.message;
+        input.disabled = false;
+      }
+    };
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'attach-close';
+    closeBtn.textContent = 'Fermer';
+    closeBtn.onclick = close;
+    modal.appendChild(closeBtn);
+  }
+
+  paint();
+  document.body.appendChild(ov);
+}
+
+function updateAttachBadge(row) {
+  const tr = document.querySelector('tr[data-id="' + row.id + '"]');
+  if (!tr) return;
+  const btn = tr.querySelector('.attach-btn');
+  if (!btn) return;
+  const n = (row.attachments || []).length;
+  let badge = btn.querySelector('.badge');
+  if (n > 0) {
+    if (!badge) { badge = document.createElement('span'); badge.className = 'badge'; btn.appendChild(badge); }
+    badge.textContent = n;
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
+function makeAttachButton(row) {
+  const btn = document.createElement('button');
+  btn.className = 'row-btn attach-btn';
+  btn.textContent = '📎';
+  btn.title = 'Voir / ajouter des photos ou un PDF pour cette ligne';
+  if ((row.attachments || []).length > 0) {
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = row.attachments.length;
+    btn.appendChild(badge);
+  }
+  btn.onclick = (e) => { e.stopPropagation(); openAttachmentsModal(row); };
+  return btn;
+}
 async function fsDeleteMany(ids) {
   const arr = [...ids];
   const CHUNK = 400;
@@ -571,6 +778,7 @@ function renderGroupePicker() {
       del.title = 'Supprimer cette ligne';
       del.onclick = (e) => { e.stopPropagation(); deleteRow(r.id); };
       tdA.appendChild(del);
+      tdA.appendChild(makeAttachButton(r));
       tr.appendChild(tdA);
       for (let i = 0; i < 7; i++) {
         const td = document.createElement('td');
@@ -774,6 +982,7 @@ function render() {
     dup.title = 'Dupliquer cette ligne pour saisir une variante';
     dup.onclick = (e) => { e.stopPropagation(); duplicateRow(r.id); };
     tdA.appendChild(dup);
+    tdA.appendChild(makeAttachButton(r));
     tr.appendChild(tdA);
     for (let i = 0; i < 7; i++) {
       const td = document.createElement('td');
