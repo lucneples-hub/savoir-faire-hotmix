@@ -77,6 +77,7 @@
   .conseil-banner .btn-back:hover { background: #1f3a6b; }
   main.conseil-mode { grid-template-columns: 1fr; }
   main.picker-mode { grid-template-columns: 1fr; }
+  main.search-mode { grid-template-columns: 1fr; }
   .groupe-picker { background: white; border-radius: 8px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
   .groupe-picker-header { font-size: 12px; text-transform: uppercase; color: #888; letter-spacing: 0.5px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #e0e0e0; }
   .groupe-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
@@ -756,6 +757,7 @@ function renderSearchResults() {
   document.getElementById('conseilBanner').style.display = 'none';
   document.querySelector('main').classList.remove('conseil-mode');
   document.querySelector('main').classList.remove('picker-mode');
+  document.querySelector('main').classList.add('search-mode');
   const facet = document.getElementById('facet');
   facet.style.display = 'none';
   const bc = document.getElementById('breadcrumb');
@@ -1122,6 +1124,7 @@ function render() {
   document.getElementById('facet').style.display = '';
   document.querySelector('main').classList.remove('conseil-mode');
   document.querySelector('main').classList.remove('picker-mode');
+  document.querySelector('main').classList.remove('search-mode');
   updateConseilUI();
   if (searchQuery.trim() !== '') return renderSearchResults();
   if (criteria.length === 0) return renderGroupePicker();
