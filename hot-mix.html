@@ -167,7 +167,7 @@ const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
 const LIGNES_COL = 'lignes';
 
-const HEADERS = ["Groupe", "Type (sous-groupe)", "État de surface", "État", "Travaux préparatoires", "Technique retenue", "Couleurs et aspect de finition"];
+const HEADERS = ["Groupe", "Sous-groupe", "Matériaux", "Dosages", "Problèmes et Solutions", "Autres infos utiles", "Couleurs et aspects de finition"];
 const ORIGINAL = [];
 const STORAGE_KEY = 'choix_par_support_v1';
 const CONSEIL_STORAGE_KEY = 'conseil_en_cours_v1';
@@ -490,20 +490,9 @@ function renderGroupePicker() {
     if (g) counts.set(g, (counts.get(g) || 0) + 1);
   });
 
-  const PRIORITY = ['Parement', 'Encadrements', 'Appuis', 'Couronnement', 'Soubassement',
-                    'Ferronneries', 'Fenêtres', 'Porte', 'Gardes Corps', 'Zinguerie'];
-  // Ordre fixe d'une 2e section sous la rouge — 4 lignes de 5.
-  // Porte est déjà dans PRIORITY → exclu d'office.
-  const SECONDARY = [
-    'Modénatures', "Chaîne d'angle", 'Balcons', 'Contrevents', 'Volets intérieurs',
-    'Volets roulants', 'Stores', 'Portail', 'Devanture', 'Seuils',
-    'Décors', 'Lucarnes', 'Souches', 'Baies', 'Travaux divers',
-    'Parasites', '', '', '', ''
-  ];
-  const prioritySet = new Set(PRIORITY);
-  const secondarySet = new Set(SECONDARY.filter(g => g));
+  // Tous les groupes présents dans la base, simple liste alphabétique
+  // (le système de cartes prioritaires/secondaires spécifique façade a été retiré)
   const remaining = [...counts.entries()]
-    .filter(([g]) => !prioritySet.has(g) && !secondarySet.has(g))
     .sort((a, b) => a[0].localeCompare(b[0], 'fr'));
 
   document.getElementById('count').textContent = DATA.length + ' lignes · ' + counts.size + ' groupes';
@@ -530,47 +519,7 @@ function renderGroupePicker() {
   hdr.textContent = 'Groupe';
   wrap.appendChild(hdr);
 
-  // Section prioritaire (ordre fixé) — cartes des groupes vides masquées
-  const gridP = document.createElement('div');
-  gridP.className = 'groupe-grid-priority';
-  PRIORITY.forEach(g => {
-    const n = counts.get(g);
-    if (n === undefined || n === 0) {
-      const empty = document.createElement('div');
-      empty.style.visibility = 'hidden';
-      gridP.appendChild(empty);
-      return;
-    }
-    gridP.appendChild(makeCard(g, n, 'priority'));
-  });
-  wrap.appendChild(gridP);
-
-  // Séparateur
-  const sep1 = document.createElement('hr');
-  sep1.className = 'groupe-separator';
-  wrap.appendChild(sep1);
-
-  // Section secondaire — ordre fixe, 4 lignes de 5
-  const gridS = document.createElement('div');
-  gridS.className = 'groupe-grid-priority';
-  SECONDARY.forEach(g => {
-    const n = g ? counts.get(g) : undefined;
-    if (!g || n === undefined || n === 0) {
-      const empty = document.createElement('div');
-      empty.style.visibility = 'hidden';
-      gridS.appendChild(empty);
-      return;
-    }
-    gridS.appendChild(makeCard(g, n, ''));
-  });
-  wrap.appendChild(gridS);
-
-  // Séparateur 2
-  const sep2 = document.createElement('hr');
-  sep2.className = 'groupe-separator';
-  wrap.appendChild(sep2);
-
-  // Autres groupes restants, ordre alphabétique
+  // Liste de tous les groupes, ordre alphabétique
   const gridO = document.createElement('div');
   gridO.className = 'groupe-grid';
   remaining.forEach(([g, n]) => gridO.appendChild(makeCard(g, n)));
