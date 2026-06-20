@@ -107,12 +107,17 @@
   .meta-bar input:focus { outline: 0; border-color: #2F5496; box-shadow: 0 0 0 2px rgba(47,84,150,0.15); }
   .meta-bar .meta-id { margin-left: auto; font-size: 14px; color: #2F5496; font-weight: 600; }
   .meta-bar .meta-id strong { font-size: 18px; }
-  .scope-btn { background: #2F5496; color: white; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
-  .scope-btn:hover { background: #1f3a6b; }
-  .scope-btn.all-scope { background: #f9a825; }
+  .scope-btn { background: white; color: #2F5496; font-size: 12px; padding: 6px 12px; white-space: nowrap; }
+  .scope-btn:hover { background: #eaf0fa; }
+  .scope-btn.all-scope { background: #f9a825; color: white; }
   .scope-btn.all-scope:hover { background: #e09000; }
   .ghost-light { background: transparent; border: 1px solid #c4ccd6; color: #888; padding: 5px 9px; font-size: 13px; }
   .ghost-light:hover { background: #e4e9ef; color: #555; }
+  .header-search { display: flex; align-items: center; gap: 6px; }
+  .header-search input { font-size: 13px; padding: 6px 10px; border: 0; border-radius: 6px; width: 220px; background: white; color: #1d1d1f; }
+  .header-search input:focus { outline: 0; box-shadow: 0 0 0 2px rgba(255,255,255,0.6); }
+  .header-clear { background: rgba(255,255,255,0.15) !important; border: 1px solid rgba(255,255,255,0.4) !important; color: white !important; }
+  .header-clear:hover { background: rgba(255,255,255,0.25) !important; }
   .search-hit td { background: #fff8dc !important; }
   .search-hit-banner { background: #fff3cd; color: #856404; padding: 8px 24px; font-size: 13px; border-bottom: 1px solid #ffeaa7; }
   .attach-btn { color: #2F5496; position: relative; }
@@ -145,17 +150,19 @@
 <header>
   <h1>Savoir-faire Hot-Mix — Navigation + Édition</h1>
   <div class="header-right">
+    <span class="header-search">
+      <input id="searchBox" type="text" placeholder="🔎 Rechercher un mot…" autocomplete="off">
+      <button class="btn scope-btn" id="searchScopeBtn" title="Cliquez pour changer la portée de la recherche">Dans la sélection</button>
+      <button class="btn ghost-light header-clear" id="searchClearBtn" title="Effacer la recherche" style="display:none">✕</button>
+    </span>
     <span class="count" id="count"></span>
     <span class="modif-badge" id="modifBadge"></span>
     <button class="btn" id="btnConseil" title="Afficher uniquement les lignes du conseil en cours pour les revoir/modifier">👁 Voir le conseil <span id="conseilCount" style="background:#fff3cd;color:#856404;padding:0 6px;border-radius:8px;margin-left:4px;font-size:11px;display:none"></span></button>
     <button class="btn" id="btnExport">Exporter le conseil (.xlsx)</button>
-    <button class="btn ghost" id="btnExportCsv" title="Vous permet d'importer le conseil dans Numbers, Excel, Google Sheets, éditeur de texte… (fonctionne aussi hors ligne)">.csv</button>
-    <label class="btn ghost" id="btnImport" title="Charger un conseil exporté précédemment. Le conseil en cours sera remplacé (avec option de sauvegarde)." style="cursor:pointer;display:inline-flex;align-items:center">📥 Importer un ancien conseil
-      <input type="file" id="fileInputConseil" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
-    </label>
     <label class="btn ghost" id="btnImportBase" title="Remplacer la base 1643 lignes par celle du fichier (restauration d'une sauvegarde)" style="cursor:pointer;display:inline-flex;align-items:center">📂 Restaurer une base
       <input type="file" id="fileInputBase" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
     </label>
+
     <button class="btn ghost" id="btnExportBase" title="Sauvegarder l'état actuel de la base (avec vos corrections, suppressions et ajouts) dans un fichier xlsx">💾 Sauvegarder la base</button>
   </div>
 </header>
@@ -166,9 +173,6 @@
   <label>Adresse <input id="metaAddress" type="text" placeholder="ex. 12 rue des Lilas"></label>
   <label>Ville <input id="metaCity" type="text" placeholder="ex. Avignon"></label>
   <label>Auteur <input id="metaAuthor" type="text" placeholder="ex. Luc Neples"></label>
-  <label>🔎 Recherche <input id="searchBox" type="text" placeholder="mot-clé…" autocomplete="off"></label>
-  <button class="btn scope-btn" id="searchScopeBtn" title="Cliquez pour changer la portée de la recherche">Dans la sélection</button>
-  <button class="btn ghost-light" id="searchClearBtn" title="Effacer la recherche" style="display:none">✕</button>
   <span class="meta-id">Conseil n° <strong id="metaId">—</strong></span>
 </div>
 <div class="conseil-banner" id="conseilBanner" style="display:none">
@@ -1445,36 +1449,6 @@ function readFileAsRows(file, callback) {
   if (isCsv) reader.readAsText(file, 'utf-8');
   else reader.readAsArrayBuffer(file);
 }
-document.getElementById('fileInputConseil').onchange = (e) => {
-  const f = e.target.files[0];
-  if (!f) return;
-  const proceed = () => { readFileAsRows(f, importRowsIntoConseil); e.target.value = ''; };
-  const reset = () => { e.target.value = ''; };
-  if (CONSEIL.length > 0) {
-    const save = confirm(
-      'Le conseil en cours contient ' + CONSEIL.length + ' ligne' + (CONSEIL.length > 1 ? 's' : '') + '.\n\n' +
-      'OK pour le sauvegarder en .xlsx avant d\'importer l\'ancien conseil.\n' +
-      'Annuler pour choisir si vous voulez quand même perdre les modifications.'
-    );
-    if (save) {
-      if (!saveCurrentConseilAsXlsx()) { reset(); return; }
-      clearConseilAfterExport();
-      proceed();
-    } else {
-      const discard = confirm('Perdre le conseil en cours (' + CONSEIL.length + ' lignes) sans le sauvegarder ?');
-      if (!discard) { reset(); return; }
-      CONSEIL = [];
-      conseilId = null;
-      conseilMeta = { address: '', city: conseilMeta.city || '', author: conseilMeta.author || '' };
-      saveConseilMeta();
-      saveConseil();
-      document.getElementById('metaAddress').value = '';
-      proceed();
-    }
-  } else {
-    proceed();
-  }
-};
 document.getElementById('fileInputBase').onchange = (e) => {
   const f = e.target.files[0];
   if (f) readFileAsRows(f, importRowsIntoBase);
@@ -1718,25 +1692,6 @@ document.getElementById('btnExportBase').onclick = () => {
   XLSX.utils.book_append_sheet(wb, ws, 'Base corrigée');
   XLSX.writeFile(wb, 'base corrigée ' + today + ' (' + DATA.length + ' lignes).xlsx');
   dirty = false; updateBadge();
-};
-
-document.getElementById('btnExportCsv').onclick = () => {
-  if (CONSEIL.length === 0) { alert('Le conseil en cours est vide.'); return; }
-  const id = ensureConseilId();
-  const metaRow = ['', 'Adresse :', conseilMeta.address || '', 'Ville :', conseilMeta.city || '', 'Auteur :', conseilMeta.author || '', 'ID :', id, ''];
-  const headers10 = ['N° Groupe'].concat(HEADERS).concat(['ID conseil', 'Position']);
-  const dataRows = [];
-  groupConseil().forEach(group => {
-    group.rows.forEach(c => dataRows.push([group.num].concat(c.cells).concat([id, c.position || ''])));
-  });
-  const rows = [metaRow, headers10].concat(dataRows);
-  const csv = rows.map(r => r.map(v => '"' + String(v || '').replace(/"/g, '""') + '"').join(',')).join('\n');
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = conseilFilename('csv');
-  a.click();
-  clearConseilAfterExport();
 };
 
 // initial badge state: if loaded from storage and differs from original, mark dirty
