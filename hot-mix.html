@@ -1699,22 +1699,64 @@ document.getElementById('btnExport').onclick = () => {
   clearConseilAfterExport();
 };
 
-document.getElementById('btnNewConseil').onclick = () => {
+function openNewConseilConfirm() {
   if (CONSEIL.length === 0) {
     alert('Le conseil en cours est déjà vide.');
     return;
   }
-  const save = confirm(
-    'Le conseil en cours contient ' + CONSEIL.length + ' ligne' + (CONSEIL.length > 1 ? 's' : '') + '.\n\n' +
-    'OK pour les sauvegarder en .xlsx avant de les effacer.\n' +
-    'Annuler pour choisir si vous voulez les effacer sans sauvegarder.'
-  );
-  if (save) {
+  editingActive = true;
+  const ov = document.createElement('div');
+  ov.className = 'attach-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'attach-modal';
+  ov.appendChild(modal);
+
+  function close() {
+    editingActive = false;
+    ov.remove();
+    if (pendingRender) { pendingRender = false; render(); }
+  }
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+
+  const h3 = document.createElement('h3');
+  h3.textContent = 'Nouveau conseil';
+  modal.appendChild(h3);
+  const sub = document.createElement('div');
+  sub.className = 'sub';
+  sub.textContent = 'Le conseil en cours contient ' + CONSEIL.length + ' ligne' + (CONSEIL.length > 1 ? 's' : '') +
+    '. Voulez-vous les sauvegarder en .xlsx avant de les effacer ?';
+  modal.appendChild(sub);
+
+  const btnRow = document.createElement('div');
+  btnRow.style.display = 'flex';
+  btnRow.style.gap = '8px';
+  btnRow.style.marginTop = '16px';
+
+  function makeBtn(text, bg, title) {
+    const b = document.createElement('button');
+    b.textContent = text;
+    b.title = title;
+    b.style.flex = '1';
+    b.style.background = bg;
+    b.style.color = 'white';
+    b.style.border = '0';
+    b.style.padding = '9px 8px';
+    b.style.borderRadius = '6px';
+    b.style.fontSize = '13px';
+    b.style.fontWeight = '600';
+    b.style.cursor = 'pointer';
+    return b;
+  }
+
+  const okBtn = makeBtn('OK', '#2F5496', 'Sauvegarder le conseil en .xlsx, puis effacer la sélection');
+  okBtn.onclick = () => {
     if (!saveCurrentConseilAsXlsx()) return;
     clearConseilAfterExport();
-  } else {
-    const discard = confirm('Effacer les ' + CONSEIL.length + ' ligne' + (CONSEIL.length > 1 ? 's' : '') + ' du conseil en cours sans les sauvegarder ?');
-    if (!discard) return;
+    close();
+  };
+
+  const eraseBtn = makeBtn('Effacer', '#c62828', 'Effacer la sélection sans la sauvegarder');
+  eraseBtn.onclick = () => {
     CONSEIL = [];
     conseilId = null;
     // Ville et Auteur sont conservés — seule l'adresse change
@@ -1723,9 +1765,21 @@ document.getElementById('btnNewConseil').onclick = () => {
     saveConseil();
     const a = document.getElementById('metaAddress'); if (a) a.value = '';
     viewingConseil = false;
-    render();
-  }
-};
+    close();
+  };
+
+  const cancelBtn = makeBtn('Annuler', '#888', 'Revenir en arrière sans rien effacer');
+  cancelBtn.onclick = close;
+
+  btnRow.appendChild(okBtn);
+  btnRow.appendChild(eraseBtn);
+  btnRow.appendChild(cancelBtn);
+  modal.appendChild(btnRow);
+
+  document.body.appendChild(ov);
+}
+
+document.getElementById('btnNewConseil').onclick = openNewConseilConfirm;
 
 document.getElementById('btnExportBase').onclick = () => {
   if (typeof XLSX === 'undefined') {
