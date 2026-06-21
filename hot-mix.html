@@ -79,7 +79,7 @@
   main.picker-mode { grid-template-columns: 1fr; }
   main.search-mode { grid-template-columns: 1fr; }
   .groupe-picker { background: white; border-radius: 8px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-  .groupe-picker-header { font-size: 12px; text-transform: uppercase; color: #888; letter-spacing: 0.5px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #e0e0e0; }
+  .groupe-picker-header { font-size: 22px; font-weight: 700; text-transform: uppercase; color: #2F5496; letter-spacing: 0.5px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #2F5496; }
   .groupe-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
   .groupe-grid-priority { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 14px; }
   .groupe-separator { border: 0; border-top: 2px solid #d4dce8; margin: 18px 0 14px; }
@@ -153,14 +153,14 @@
   <div class="header-right">
     <span class="header-search">
       <input id="searchBox" type="text" placeholder="🔎 Rechercher un mot…" autocomplete="off">
-      <button class="btn scope-btn" id="searchScopeBtn" title="Cliquez pour changer la portée de la recherche">Dans la sélection</button>
       <button class="btn ghost-light header-clear" id="searchClearBtn" title="Effacer la recherche" style="display:none">✕</button>
+      <button class="btn scope-btn" id="searchScopeBtn" title="Cliquez pour changer la portée de la recherche">Dans la sélection</button>
     </span>
     <span class="count" id="count"></span>
     <span class="modif-badge" id="modifBadge"></span>
-    <button class="btn" id="btnConseil" title="Afficher uniquement les lignes du conseil en cours pour les revoir/modifier">👁 Voir le conseil <span id="conseilCount" style="background:#fff3cd;color:#856404;padding:0 6px;border-radius:8px;margin-left:4px;font-size:11px;display:none"></span></button>
-    <button class="btn" id="btnExport">Exporter le conseil (.xlsx)</button>
-    <button class="btn ghost" id="btnNewConseil" title="Vider la sélection du conseil en cours (avec proposition de sauvegarde avant)">🆕 Nouveau conseil</button>
+    <button class="btn" id="btnConseil" title="Afficher uniquement les lignes du conseil en cours pour les revoir/modifier">👁 Voir les extraits <span id="conseilCount" style="background:#fff3cd;color:#856404;padding:0 6px;border-radius:8px;margin-left:4px;font-size:11px;display:none"></span></button>
+    <button class="btn" id="btnExport">Exporter les extraits (.xlsx)</button>
+    <button class="btn ghost" id="btnNewConseil" title="Vider la sélection du conseil en cours (avec proposition de sauvegarde avant)">🆕 RAZ des extraits</button>
     <label class="btn ghost" id="btnImportBase" title="Remplacer la base 1643 lignes par celle du fichier (restauration d'une sauvegarde)" style="cursor:pointer;display:inline-flex;align-items:center">📂 Restaurer une base
       <input type="file" id="fileInputBase" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
     </label>
@@ -170,12 +170,6 @@
 </header>
 <div class="info-bar">
   Astuce — cliquez dans n'importe quelle cellule (bord pointillé) pour modifier son texte, puis <kbd>Entrée</kbd> ou clic hors cellule pour valider, <kbd>Échap</kbd> pour annuler. Boutons par ligne : 🗑 supprime, ×2 duplique la ligne pour saisir une variante. Tout est sauvegardé dans ce navigateur ; pensez à exporter pour conserver une copie.
-</div>
-<div class="meta-bar">
-  <label>Adresse <input id="metaAddress" type="text" placeholder="ex. 12 rue des Lilas"></label>
-  <label>Ville <input id="metaCity" type="text" placeholder="ex. Avignon"></label>
-  <label>Auteur <input id="metaAuthor" type="text" placeholder="ex. Luc Neples"></label>
-  <span class="meta-id">Conseil n° <strong id="metaId">—</strong></span>
 </div>
 <div class="conseil-banner" id="conseilBanner" style="display:none">
   <span>Conseil en cours : <span class="id" id="conseilIdLabel"></span></span>
@@ -1048,7 +1042,7 @@ function renderGroupePicker() {
   wrap.className = 'groupe-picker';
   const hdr = document.createElement('div');
   hdr.className = 'groupe-picker-header';
-  hdr.textContent = 'Groupe';
+  hdr.textContent = 'CHOISISSEZ UN GROUPE …';
   wrap.appendChild(hdr);
 
   // Liste de tous les groupes, ordre alphabétique
@@ -1636,18 +1630,12 @@ function clearConseilAfterExport() {
   conseilMeta = { address: '', city: conseilMeta.city || '', author: conseilMeta.author || '' };
   saveConseilMeta();
   saveConseil();
-  document.getElementById('metaAddress').value = '';
+  { const a = document.getElementById('metaAddress'); if (a) a.value = ''; }
   viewingConseil = false;
   render();
 }
 
-// Initialiser les inputs depuis l'état mémorisé + brancher la sauvegarde
-['Address','City','Author'].forEach(k => {
-  const el = document.getElementById('meta' + k);
-  const key = k.toLowerCase();
-  el.value = conseilMeta[key] || '';
-  el.addEventListener('blur', () => { conseilMeta[key] = el.value.trim(); saveConseilMeta(); });
-});
+// Champs Adresse/Ville/Auteur retirés de l'interface (conseilMeta reste utilisé en interne, vide)
 
 // Recherche en direct
 const searchBoxEl = document.getElementById('searchBox');
@@ -1719,7 +1707,7 @@ function openNewConseilConfirm() {
   ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
 
   const h3 = document.createElement('h3');
-  h3.textContent = 'Nouveau conseil';
+  h3.textContent = 'RAZ des extraits';
   modal.appendChild(h3);
   const sub = document.createElement('div');
   sub.className = 'sub';
