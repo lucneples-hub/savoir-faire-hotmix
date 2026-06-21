@@ -79,7 +79,7 @@
   main.picker-mode { grid-template-columns: 1fr; }
   main.search-mode { grid-template-columns: 1fr; }
   .groupe-picker { background: white; border-radius: 8px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-  .groupe-picker-header { font-size: 22px; font-weight: 700; text-transform: uppercase; color: #2F5496; letter-spacing: 0.5px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #2F5496; }
+  .groupe-picker-header { font-size: 15px; font-weight: 500; text-transform: none; color: #888; letter-spacing: 0.2px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #e0e0e0; }
   .groupe-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
   .groupe-grid-priority { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 14px; }
   .groupe-separator { border: 0; border-top: 2px solid #d4dce8; margin: 18px 0 14px; }
@@ -169,7 +169,7 @@
   </div>
 </header>
 <div class="info-bar">
-  Astuce — cliquez dans n'importe quelle cellule (bord pointillé) pour modifier son texte, puis <kbd>Entrée</kbd> ou clic hors cellule pour valider, <kbd>Échap</kbd> pour annuler. Boutons par ligne : 🗑 supprime, ×2 duplique la ligne pour saisir une variante. Tout est sauvegardé dans ce navigateur ; pensez à exporter pour conserver une copie.
+  Astuce — cliquez dans n'importe quelle cellule (bord pointillé) pour modifier son texte, puis <kbd>Entrée</kbd> ou clic hors cellule pour valider, <kbd>Échap</kbd> pour annuler. Boutons par ligne : 🗑 supprime, ×2 duplique la ligne pour saisir une variante.
 </div>
 <div class="conseil-banner" id="conseilBanner" style="display:none">
   <span>Conseil en cours : <span class="id" id="conseilIdLabel"></span></span>
@@ -1001,10 +1001,6 @@ function renderGroupePicker() {
   const facet = document.getElementById('facet');
   const res = document.getElementById('results');
   bc.innerHTML = '';
-  const hint = document.createElement('span');
-  hint.className = 'empty-hint';
-  hint.textContent = 'Choisissez un Groupe ci-dessous pour démarrer le filtrage.';
-  bc.appendChild(hint);
 
   facet.style.display = 'none';
   document.querySelector('main').classList.add('picker-mode');
@@ -1042,7 +1038,7 @@ function renderGroupePicker() {
   wrap.className = 'groupe-picker';
   const hdr = document.createElement('div');
   hdr.className = 'groupe-picker-header';
-  hdr.textContent = 'CHOISISSEZ UN GROUPE …';
+  hdr.textContent = 'Choisissez un groupe ci dessous ...';
   wrap.appendChild(hdr);
 
   // Liste de tous les groupes, ordre alphabétique
