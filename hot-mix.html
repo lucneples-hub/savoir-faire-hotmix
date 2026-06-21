@@ -161,8 +161,11 @@
     <button class="btn" id="btnConseil" title="Afficher uniquement les lignes du conseil en cours pour les revoir/modifier">👁 Voir les extraits <span id="conseilCount" style="background:#fff3cd;color:#856404;padding:0 6px;border-radius:8px;margin-left:4px;font-size:11px;display:none"></span></button>
     <button class="btn" id="btnExport">Exporter les extraits (.xlsx)</button>
     <button class="btn ghost" id="btnNewConseil" title="Vider la sélection du conseil en cours (avec proposition de sauvegarde avant)">🆕 RAZ des extraits</button>
-    <label class="btn ghost" id="btnImportBase" title="Remplacer la base 1643 lignes par celle du fichier (restauration d'une sauvegarde)" style="cursor:pointer;display:inline-flex;align-items:center">📂 Restaurer une base
+    <label class="btn ghost" id="btnImportBase" title="Remplacer la base 1643 lignes par celle du fichier (restauration d'une sauvegarde) — protégé par mot de passe" style="cursor:pointer;display:inline-flex;align-items:center">📂 Restaurer une base
       <input type="file" id="fileInputBase" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+    </label>
+    <label class="btn ghost" id="btnAppendBase" title="Ajouter à la base actuelle des lignes préparées dans un fichier xlsx/csv, sans rien effacer" style="cursor:pointer;display:inline-flex;align-items:center">➕ Ajouter des lignes
+      <input type="file" id="fileInputAppend" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
     </label>
 
     <button class="btn ghost" id="btnExportBase" title="Sauvegarder l'état actuel de la base (avec vos corrections, suppressions et ajouts) dans un fichier xlsx">💾 Sauvegarder la base</button>
@@ -654,6 +657,14 @@ async function fsReplaceAll(newRows) {
   const existingIds = [];
   existing.forEach(d => existingIds.push(d.id));
   await fsDeleteMany(existingIds);
+  const CHUNK = 400;
+  for (let i = 0; i < newRows.length; i += CHUNK) {
+    const batch = writeBatch(db);
+    newRows.slice(i, i + CHUNK).forEach(r => batch.set(doc(db, LIGNES_COL, r.id), { cells: r.cells, _new: !!r._new }));
+    await batch.commit();
+  }
+}
+async function fsAddRows(newRows) {
   const CHUNK = 400;
   for (let i = 0; i < newRows.length; i += CHUNK) {
     const batch = writeBatch(db);
@@ -1465,6 +1476,11 @@ document.getElementById('fileInputBase').onchange = (e) => {
   if (f) readFileAsRows(f, importRowsIntoBase);
   e.target.value = '';
 };
+document.getElementById('fileInputAppend').onchange = (e) => {
+  const f = e.target.files[0];
+  if (f) readFileAsRows(f, importRowsAppendToBase);
+  e.target.value = '';
+};
 
 function parseCsvText(text) {
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
@@ -1491,10 +1507,9 @@ function parseCsvText(text) {
   return rows;
 }
 
-function importRowsIntoBase(rows) {
+function parseImportedRows(rows) {
   let imported = 0, skipped = 0;
-  const newRows = [];
-  let nextId = nextNumericId;
+  const cellsList = [];
   rows.forEach(r => {
     if (!r || r.length === 0) { skipped++; return; }
     const first = String(r[0] || '').trim();
@@ -1508,9 +1523,16 @@ function importRowsIntoBase(rows) {
     }
     while (cells.length < 7) cells.push('');
     if (cells.every(c => !c)) { skipped++; return; }
-    newRows.push({ id: 'r-imp-' + (nextId++), cells: cells.slice(0, 7) });
+    cellsList.push(cells.slice(0, 7));
     imported++;
   });
+  return { cellsList, imported, skipped };
+}
+
+const RESTORE_BASE_PASSWORD = 'LN210554';
+
+function importRowsIntoBase(rows) {
+  const { cellsList, imported, skipped } = parseImportedRows(rows);
   if (imported === 0) {
     alert('Aucune ligne valide trouvée dans le fichier.');
     return;
@@ -1522,12 +1544,41 @@ function importRowsIntoBase(rows) {
     '\n\nLe conseil en cours n\'est pas affecté.'
   );
   if (!ok) return;
+  const pwd = prompt('⚠ Action irréversible.\nTapez le mot de passe pour confirmer le remplacement complet de la base :');
+  if (pwd === null) return;
+  if (pwd !== RESTORE_BASE_PASSWORD) {
+    alert('Mot de passe incorrect. Remplacement annulé, la base actuelle n\'a pas été modifiée.');
+    return;
+  }
+  let nextId = nextNumericId;
+  const newRows = cellsList.map(cells => ({ id: 'r-imp-' + (nextId++), cells }));
   DATA = newRows;
   nextNumericId = nextId;
   criteria = [];
   fsReplaceAll(newRows).catch(console.error);
   render();
   alert('Base remplacée : ' + DATA.length + ' lignes chargées.');
+}
+
+function importRowsAppendToBase(rows) {
+  const { cellsList, imported, skipped } = parseImportedRows(rows);
+  if (imported === 0) {
+    alert('Aucune ligne valide trouvée dans le fichier.');
+    return;
+  }
+  const ok = confirm(
+    'Ajouter ' + imported + ' ligne' + (imported > 1 ? 's' : '') + ' du fichier à la base actuelle (' + DATA.length + ' lignes) ?' +
+    (skipped ? '\n\n(' + skipped + ' lignes ignorées : métadonnées, en-tête ou vides.)' : '') +
+    '\n\nLa base actuelle n\'est pas remplacée, ces lignes viennent simplement s\'y ajouter.'
+  );
+  if (!ok) return;
+  let nextId = nextNumericId;
+  const newRows = cellsList.map(cells => ({ id: 'r-add-' + (nextId++), cells, _new: true }));
+  DATA = DATA.concat(newRows);
+  nextNumericId = nextId;
+  fsAddRows(newRows).catch(console.error);
+  render();
+  alert(newRows.length + ' ligne' + (newRows.length > 1 ? 's' : '') + ' ajoutée' + (newRows.length > 1 ? 's' : '') + ' à la base.');
 }
 
 function importRowsIntoConseil(rows) {
