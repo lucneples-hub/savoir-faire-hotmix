@@ -1750,6 +1750,7 @@ function openNewConseilConfirm() {
     const a = document.getElementById('metaAddress'); if (a) a.value = '';
     viewingConseil = false;
     close();
+    render();
   };
 
   const cancelBtn = makeBtn('Annuler', '#888', 'Revenir en arrière sans rien effacer');
