@@ -145,7 +145,7 @@
   .attach-uploading { font-size: 12px; color: #856404; margin-top: 6px; }
   .lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 200; cursor: zoom-out; }
   .lightbox-overlay img { max-width: 92vw; max-height: 92vh; border-radius: 6px; }
-  .attach-btn.has-link { color: #c62828; }
+  .attach-btn.has-link { outline: 2px solid #c62828; border-radius: 4px; }
   .attach-item .link-icon { width: 44px; height: 44px; border-radius: 4px; background: #e3f2fd; color: #1565c0; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; cursor: pointer; }
   .attach-url-row { display: flex; gap: 8px; align-items: center; margin-top: 14px; border-top: 1px solid #e0e0e0; padding-top: 14px; }
   .attach-url-row input { flex: 1; font-size: 13px; padding: 6px 10px; border: 1px solid #c4ccd6; border-radius: 6px; }
@@ -476,7 +476,6 @@ function openAttachmentsModal(row) {
       }
     };
 
-    // Champ pour ajouter un lien web
     const urlRow = document.createElement('div');
     urlRow.className = 'attach-url-row';
     const urlInput = document.createElement('input');
@@ -531,8 +530,7 @@ function updateAttachBadge(row) {
   if (!btn) return;
   const atts = row.attachments || [];
   const n = atts.length;
-  const hasLink = atts.some(a => a.type === 'link');
-  btn.classList.toggle('has-link', hasLink);
+  btn.classList.toggle('has-link', atts.some(a => a.type === 'link'));
   let badge = btn.querySelector('.badge');
   if (n > 0) {
     if (!badge) { badge = document.createElement('span'); badge.className = 'badge'; btn.appendChild(badge); }
