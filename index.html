@@ -1939,7 +1939,17 @@ const CODE_KEY  = 'hotmix_code_v1';
 const EDIT_CODE = 'hotmix2024';   // ← modifier ce code pour le communiquer aux artisans
 
 let currentUser = localStorage.getItem(USER_KEY) || '';
-let canEdit = localStorage.getItem(CODE_KEY) === EDIT_CODE;
+let _storedCode  = localStorage.getItem(CODE_KEY) || '';
+let canEdit  = _storedCode === EDIT_CODE || _storedCode === EDIT_CODE + '@';
+let canAdmin = _storedCode === EDIT_CODE + '@';
+
+function updateAdminButtons() {
+  const show = canAdmin ? '' : 'none';
+  ['btnExportBase', 'btnImportBase', 'btnAppendBase'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = show;
+  });
+}
 
 function updateUserBadge() {
   const badge = document.getElementById('userBadge');
@@ -2007,13 +2017,14 @@ function showLoginModal(force) {
     const pseudo = inpP.value.trim();
     const code   = inpC.value.trim();
     if (!pseudo) { inpP.focus(); return; }
-    if (code !== EDIT_CODE) { errDiv.style.display = 'block'; inpC.focus(); return; }
+    if (code !== EDIT_CODE && code !== EDIT_CODE + '@') { errDiv.style.display = 'block'; inpC.focus(); return; }
     currentUser = pseudo;
-    canEdit = true;
+    canEdit  = true;
+    canAdmin = (code === EDIT_CODE + '@');
     localStorage.setItem(USER_KEY, pseudo);
-    localStorage.setItem(CODE_KEY, EDIT_CODE);
+    localStorage.setItem(CODE_KEY, code);
     localStorage.setItem('hotmix_seen_login', '1');
-    updateUserBadge(); ov.remove(); render();
+    updateAdminButtons(); updateUserBadge(); ov.remove(); render();
   };
   modal.appendChild(btnWrite);
   const btnRead = document.createElement('button');
@@ -2021,11 +2032,12 @@ function showLoginModal(force) {
   btnRead.textContent = '👁 Consulter en lecture seule';
   btnRead.onclick = () => {
     currentUser = inpP.value.trim();
-    canEdit = false;
+    canEdit  = false;
+    canAdmin = false;
     if (currentUser) localStorage.setItem(USER_KEY, currentUser);
     localStorage.removeItem(CODE_KEY);
     localStorage.setItem('hotmix_seen_login', '1');
-    updateUserBadge(); ov.remove(); render();
+    updateAdminButtons(); updateUserBadge(); ov.remove(); render();
   };
   modal.appendChild(btnRead);
   inpC.addEventListener('keydown', e => { if (e.key === 'Enter') btnWrite.click(); });
@@ -2037,6 +2049,7 @@ function showLoginModal(force) {
 
 // initial badge state: if loaded from storage and differs from original, mark dirty
 if (JSON.stringify(DATA) !== JSON.stringify(ORIGINAL)) { dirty = true; updateBadge(); }
+updateAdminButtons();
 showLoginModal(false);
 render();
 
