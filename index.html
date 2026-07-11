@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <title>Savoir-faire Hot-Mix — Navigation + Édition</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: #f5f5f7; color: #1d1d1f; }
@@ -191,6 +193,7 @@
     <span class="modif-badge" id="modifBadge"></span>
     <button class="btn" id="btnConseil" title="Afficher uniquement les lignes du conseil en cours pour les revoir/modifier">👁 Voir les extraits <span id="conseilCount" style="background:#fff3cd;color:#856404;padding:0 6px;border-radius:8px;margin-left:4px;font-size:11px;display:none"></span></button>
     <button class="btn" id="btnExport">Exporter les extraits (.xlsx)</button>
+    <button class="btn" id="btnExportPdf">Exporter en PDF</button>
     <button class="btn ghost" id="btnNewConseil" title="Vider la sélection du conseil en cours (avec proposition de sauvegarde avant)">🆕 RAZ des extraits</button>
     <label class="btn ghost" id="btnImportBase" title="Remplacer la base 1643 lignes par celle du fichier (restauration d'une sauvegarde) — protégé par mot de passe" style="cursor:pointer;display:inline-flex;align-items:center">📂 Restaurer une base
       <input type="file" id="fileInputBase" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
@@ -1825,12 +1828,110 @@ function saveCurrentConseilAsXlsx() {
   return true;
 }
 
+function saveCurrentConseilAsPdf() {
+  if (typeof window.jspdf === 'undefined') {
+    alert('Module jsPDF non chargé. Vérifiez votre connexion internet.');
+    return false;
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+  const id = ensureConseilId();
+  const date = new Date().toLocaleDateString('fr-FR');
+  const BLUE = [47, 84, 150];
+
+  // ── Titre ──
+  doc.setFontSize(15);
+  doc.setTextColor(...BLUE);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Savoir-faire Hot-Mix  —  Conseil N°' + id, 14, 16);
+
+  // ── Méta ──
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(80, 80, 80);
+  const metaParts = [];
+  if (conseilMeta.address) metaParts.push('Adresse : ' + conseilMeta.address);
+  if (conseilMeta.city)    metaParts.push('Ville : ' + conseilMeta.city);
+  if (conseilMeta.author)  metaParts.push('Auteur : ' + conseilMeta.author);
+  metaParts.push('Date : ' + date);
+  doc.text(metaParts.join('    '), 14, 23);
+
+  // ── Ligne séparatrice ──
+  doc.setDrawColor(...BLUE);
+  doc.setLineWidth(0.4);
+  doc.line(14, 26, 283, 26);
+
+  // ── Corps du tableau ──
+  // Colonnes : Sous-groupe | Matériaux | Dosages | Mise en Oeuvre | Autres infos | Couleurs/aspects
+  const head = [[
+    'Sous-groupe', 'Matériaux', 'Dosages',
+    'Mise en Oeuvre', 'Autres infos utiles', 'Couleurs et aspects'
+  ]];
+  const body = [];
+  groupConseil().forEach(group => {
+    // Ligne de titre de groupe (pleine largeur)
+    body.push([{
+      content: group.num + '.  ' + group.name,
+      colSpan: 6,
+      styles: { fillColor: BLUE, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5, cellPadding: { top: 3, bottom: 3, left: 4, right: 4 } }
+    }]);
+    // Lignes de données (on saute cells[0] = Groupe déjà dans le titre)
+    group.rows.forEach(c => {
+      body.push([
+        c.cells[1] || '', c.cells[2] || '', c.cells[3] || '',
+        c.cells[4] || '', c.cells[5] || '', c.cells[6] || ''
+      ]);
+    });
+  });
+
+  doc.autoTable({
+    head,
+    body,
+    startY: 29,
+    margin: { left: 14, right: 14 },
+    styles: { fontSize: 7.5, cellPadding: { top: 2, bottom: 2, left: 3, right: 3 }, overflow: 'linebreak', valign: 'top' },
+    headStyles: { fillColor: [180, 200, 230], textColor: [20, 40, 90], fontStyle: 'bold', fontSize: 8 },
+    alternateRowStyles: { fillColor: [245, 248, 255] },
+    columnStyles: {
+      0: { cellWidth: 35 },   // Sous-groupe
+      1: { cellWidth: 30 },   // Matériaux
+      2: { cellWidth: 22 },   // Dosages
+      3: { cellWidth: 58 },   // Mise en Oeuvre
+      4: { cellWidth: 58 },   // Autres infos
+      5: { cellWidth: 66 },   // Couleurs/aspects
+    },
+    didDrawPage: (data) => {
+      // Numéro de page en pied
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.text(
+        'Page ' + doc.internal.getCurrentPageInfo().pageNumber,
+        doc.internal.pageSize.getWidth() / 2, doc.internal.pageSize.getHeight() - 8,
+        { align: 'center' }
+      );
+    }
+  });
+
+  doc.save(conseilFilename('pdf'));
+  return true;
+}
+
 document.getElementById('btnExport').onclick = () => {
   if (CONSEIL.length === 0) {
     alert('Le conseil en cours est vide.\n\nDans la navigation, cochez la case en bout de ligne (visible quand la finition est renseignée) pour ajouter des lignes au conseil.');
     return;
   }
   if (!saveCurrentConseilAsXlsx()) return;
+  clearConseilAfterExport();
+};
+
+document.getElementById('btnExportPdf').onclick = () => {
+  if (CONSEIL.length === 0) {
+    alert('Le conseil en cours est vide.\n\nDans la navigation, cochez la case en bout de ligne pour ajouter des lignes au conseil.');
+    return;
+  }
+  if (!saveCurrentConseilAsPdf()) return;
   clearConseilAfterExport();
 };
 
